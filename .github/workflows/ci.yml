@@ -1,0 +1,52 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      # No `cache: pnpm` here — the OSS repo intentionally does NOT ship a
+      # pnpm-lock.yaml (the lockfile is a closed-monorepo artifact and
+      # leaking it would expose private package names/versions). Without
+      # a lockfile, `cache: pnpm` fails with "Dependencies lock file is
+      # not found". The tiny install cost is acceptable for public CI.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: pnpm install --no-frozen-lockfile
+
+      # Build packages BEFORE typecheck so cross-package @mcp-verify/*
+      # imports resolve via dist/index.d.ts on a fresh runner.
+      #
+      # The sdk ↔ studio-runner workspace cycle (sdk imports
+      # studio-runner; studio-runner imports `type Transport` from sdk)
+      # means whichever package builds second in topological order hits
+      # TS5055 — tsc loads the peer's dist/*.d.ts as program input and
+      # refuses to overwrite the same paths on emit. Structural; no order
+      # avoids it without source refactor.
+      #
+      # Mitigation: `--no-bail || true` swallows the cycle failure. tsc
+      # emits dist/ before raising TS5055, so all packages end up with
+      # complete dist/ on disk. Explicit existence check catches REAL
+      # build failures. Same pattern as closed-repo CI.
+      - name: Build packages (cycle-tolerant)
+        run: |
+          pnpm --filter='./packages/**' --workspace-concurrency=1 --no-bail -r build || true
+          missing=0
+          for p in sdk studio-runner; do
+            if [ ! -d "packages/$p/dist" ]; then
+              echo "::error::packages/$p/dist missing after build — this is a REAL failure, not a cycle."
+              missing=1
+            fi
+          done
+          [ "$missing" -eq 0 ]
+
+      - run: pnpm -r typecheck

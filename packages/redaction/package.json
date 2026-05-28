@@ -1,0 +1,28 @@
+{
+  "name": "@mcp-verify/redaction",
+  "version": "0.0.1",
+  "description": "Pure-ESM trace + per-step redactor shared between the MCPVerify web app and SDK CLI. No Node built-ins; safe for Edge runtime.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "devDependencies": {
+    "typescript": "^5.4.5",
+    "vitest": "^1.6.0"
+  }
+}

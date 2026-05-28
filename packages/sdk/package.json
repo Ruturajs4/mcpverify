@@ -1,0 +1,55 @@
+{
+  "name": "@mcp-verify/sdk",
+  "version": "0.7.0",
+  "description": "MCPVerify SDK — captures MCP server protocol traces and ships them to mcpverify.dev for cloud-side validation. Find spec violations, security issues, and compatibility gaps in your MCP server.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "mcpverify": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "tsc"
+  },
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "dependencies": {
+    "@mcp-verify/redaction": "workspace:*",
+    "@mcp-verify/studio-runner": "workspace:*",
+    "yaml": "^2.5.0",
+    "zod": "^3.25.28"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0",
+    "@types/node": "^20.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Ruturajs4/mcpverify.git",
+    "directory": "packages/sdk"
+  },
+  "homepage": "https://mcpverify.dev",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "testing",
+    "validation",
+    "claude",
+    "anthropic"
+  ]
+}

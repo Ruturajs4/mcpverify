@@ -1,0 +1,65 @@
+{
+  "name": "@mcp-verify/studio-runner",
+  "version": "0.1.0",
+  "description": "Assert Studio building blocks — YAML schema + parser, JSONPath helpers, transport factory, dynamic-HTTP fixture executor. Lightweight OSS surface. Scoring + execution live in the closed mcpverify.dev cloud (T-184).",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
+  },
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./schema": {
+      "import": "./dist/schema.js",
+      "types": "./dist/schema.d.ts"
+    },
+    "./jsonpath": {
+      "import": "./dist/jsonpath.js",
+      "types": "./dist/jsonpath.d.ts"
+    },
+    "./transport-factory": {
+      "import": "./dist/transport-factory.js",
+      "types": "./dist/transport-factory.d.ts"
+    },
+    "./dynamic-fixture": {
+      "import": "./dist/dynamic-fixture.js",
+      "types": "./dist/dynamic-fixture.d.ts"
+    },
+    "./compat": {
+      "import": "./dist/compat.js",
+      "types": "./dist/compat.d.ts"
+    }
+  },
+  "dependencies": {
+    "@mcp-verify/sdk": "workspace:*",
+    "zod": "^3.25.28",
+    "yaml": "^2.5.0",
+    "jsonpath-plus": "^10.3.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0",
+    "@types/node": "^20.0.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Ruturajs4/mcpverify.git",
+    "directory": "packages/studio-runner"
+  },
+  "homepage": "https://mcpverify.dev",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "testing",
+    "assertions",
+    "jsonpath"
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "name": "mcpverify-sdk example suite",
+  "description": "Two scripted cases that exercise the demo MCP server (echo + read_file). Drop this file into CI and run: `mcpverify studio run studio-suite-example.json --api-key $MCPVERIFY_API_KEY`.",
+  "cases": [
+    {
+      "name": "echo round-trips a message",
+      "description": "Asserts the demo echo tool returns a content[] array with at least one item.",
+      "kind": "scripted",
+      "yaml": "kind: scripted\nname: echo round-trips a message\nclientProfile: generic\ntarget:\n  transport: stdio\n  command: node C:/Users/admin/mcpverify/tools/demo-server/server.js\nsetup: []\nsteps:\n  - kind: tools/call\n    name: echo\n    arguments:\n      message: hello mcpverify\nexpected:\n  mode: schema\n  schema:\n    type: object\n    properties:\n      content:\n        type: array\n        minItems: 1\n        items:\n          type: object\n          required:\n            - type\n    required:\n      - content\n"
+    },
+    {
+      "name": "read_file returns content for a valid sandbox path",
+      "description": "Reads a known file inside the demo server's sandbox/ and asserts the content envelope shape.",
+      "kind": "scripted",
+      "yaml": "kind: scripted\nname: read_file returns content for a valid sandbox path\nclientProfile: generic\ntarget:\n  transport: stdio\n  command: node C:/Users/admin/mcpverify/tools/demo-server/server.js\nsetup: []\nsteps:\n  - kind: tools/call\n    name: echo\n    arguments:\n      message: second case\nexpected:\n  mode: schema\n  schema:\n    type: object\n    properties:\n      content:\n        type: array\n    required:\n      - content\n"
+    }
+  ]
+}

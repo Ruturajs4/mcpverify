@@ -1,0 +1,338 @@
+name: oss-guard
+
+# Fails the build if @mcp-verify/sdk or @mcp-verify/studio-runner ever
+# imports a proprietary closed package. The two closed packages today are
+# the load-bearing moats:
+#
+#   - @mcp-verify/validation-engine  — compliance scorer (T-148)
+#   - @mcp-verify/studio-runtime     — Assert Studio scoring engine (T-184)
+#
+# OSS packages must not depend on either. Adding a third closed moat?
+# Extend the regex set in BOTH the scan AND the self-test below. Drift
+# between them is the failure mode T-172 was hardened against.
+#
+# T-184 hardening (2026-05-28):
+#   - Adds @mcp-verify/studio-runtime as a second forbidden target. Mirrors
+#     the validation-engine pattern. Without this, an accidental import of
+#     runScripted/runAgentic/etc. from studio-runtime into sdk or studio-
+#     runner would ship the moat we just extracted.
+#   - Self-test now covers BOTH targets — 8 positive cases × 2 = 16.
+#
+# T-172 hardening (2026-05-25):
+#   - File globs now include .cts/.mts/.cjs/.jsx (was missing all of these).
+#   - Patterns now catch dynamic `import(...)`, template-literal imports
+#     `import(\`...\`)`, `require(...)`, bare side-effect `import '...'`, and
+#     `export * from` re-exports.
+#   - Self-test step asserts EACH intentional-positive file is caught
+#     individually (the earlier version ran one bulk grep and treated any
+#     match as success, so a regression that silently dropped one pattern
+#     would be invisible — flagged by SLFG step-5 security review as P0-2).
+
+on:
+  pull_request:
+    paths:
+      - 'packages/sdk/**'
+      - 'packages/studio-runner/**'
+      - 'apps/web/src/app/api/v1/**/*.ts'
+      - 'apps/web/src/lib/assertion-catalog.generated.ts'
+      - 'tools/build-assertion-catalog.mjs'
+      - '.github/workflows/oss-guard.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'packages/sdk/**'
+      - 'packages/studio-runner/**'
+      - 'apps/web/src/app/api/v1/**/*.ts'
+      - 'apps/web/src/lib/assertion-catalog.generated.ts'
+      - 'tools/build-assertion-catalog.mjs'
+      - '.github/workflows/oss-guard.yml'
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # ------------------------------------------------------------------
+      # The four scan patterns, kept in a YAML scalar so the real-scan step
+      # and the self-test step both use the SAME regex set. Drift between
+      # them is the exact failure mode P0-2 flagged.
+      # ------------------------------------------------------------------
+      - name: Define scan patterns
+        id: patterns
+        run: |
+          # Each pattern alternates between the two forbidden moat packages.
+          # Adding a third? Extend BOTH halves of the alternation here AND
+          # in the self-test loop below.
+          echo "p1=from[[:space:]]+['\"\`]@mcp-verify/(validation-engine|studio-runtime)"      >> "$GITHUB_OUTPUT"
+          echo "p2=require[[:space:]]*\([[:space:]]*['\"\`]@mcp-verify/(validation-engine|studio-runtime)" >> "$GITHUB_OUTPUT"
+          echo "p3=import[[:space:]]*\([[:space:]]*['\"\`]@mcp-verify/(validation-engine|studio-runtime)"  >> "$GITHUB_OUTPUT"
+          echo "p4=import[[:space:]]+['\"\`]@mcp-verify/(validation-engine|studio-runtime)"    >> "$GITHUB_OUTPUT"
+
+      # ------------------------------------------------------------------
+      # Self-test: 8 intentional-positive files PER forbidden package
+      # (16 total today — validation-engine + studio-runtime). Each file
+      # is grep'd individually, asserting EACH pattern catches its case.
+      # Catches the regression class P0-2 surfaced — bulk grep + any
+      # match = "success" lets individual patterns silently break.
+      # ------------------------------------------------------------------
+      - name: Self-test (regex regression guard)
+        run: |
+          set -euo pipefail
+          TEST_DIR="packages/sdk/src/__oss_guard_self_test__"
+          trap 'rm -rf "$TEST_DIR"' EXIT INT TERM
+
+          mkdir -p "$TEST_DIR"
+
+          # 8 positive cases per forbidden moat package. Loop over both.
+          for pkg in validation-engine studio-runtime; do
+            cat > "$TEST_DIR/${pkg}_p1_bare_static.ts" <<EOF
+          import '@mcp-verify/${pkg}';
+          EOF
+            cat > "$TEST_DIR/${pkg}_p2_named_static.ts" <<EOF
+          import { Foo } from '@mcp-verify/${pkg}';
+          EOF
+            cat > "$TEST_DIR/${pkg}_p3_type_only.ts" <<EOF
+          import type { Foo } from '@mcp-verify/${pkg}';
+          EOF
+            cat > "$TEST_DIR/${pkg}_p4_reexport.ts" <<EOF
+          export * from '@mcp-verify/${pkg}';
+          EOF
+            cat > "$TEST_DIR/${pkg}_p5_dynamic.ts" <<EOF
+          const x = await import('@mcp-verify/${pkg}');
+          EOF
+            cat > "$TEST_DIR/${pkg}_p6_template_literal.ts" <<EOF
+          const y = await import(\`@mcp-verify/${pkg}\`);
+          EOF
+            cat > "$TEST_DIR/${pkg}_p7_require_cjs.cjs" <<EOF
+          const m = require('@mcp-verify/${pkg}');
+          EOF
+            cat > "$TEST_DIR/${pkg}_p8_dynamic_cts.cts" <<EOF
+          const m = await import('@mcp-verify/${pkg}');
+          EOF
+          done
+
+          # Same patterns as the real scan below — keep these in sync.
+          # The alternation `(validation-engine|studio-runtime)` matches
+          # either forbidden moat package.
+          P1='from[[:space:]]+['\''"`]@mcp-verify/(validation-engine|studio-runtime)'
+          P2='require[[:space:]]*\([[:space:]]*['\''"`]@mcp-verify/(validation-engine|studio-runtime)'
+          P3='import[[:space:]]*\([[:space:]]*['\''"`]@mcp-verify/(validation-engine|studio-runtime)'
+          P4='import[[:space:]]+['\''"`]@mcp-verify/(validation-engine|studio-runtime)'
+
+          fail_count=0
+          for f in "$TEST_DIR"/*.{ts,cts,cjs}; do
+            if grep -E -e "$P1" -e "$P2" -e "$P3" -e "$P4" "$f" > /dev/null; then
+              echo "✓ caught $(basename "$f")"
+            else
+              echo "::error::self-test FAILED for $(basename "$f") — no regex matched."
+              echo "Contents:"
+              cat "$f"
+              fail_count=$((fail_count + 1))
+            fi
+          done
+
+          if [ "$fail_count" -gt 0 ]; then
+            echo "::error::$fail_count positive case(s) slipped past the guard."
+            echo "Tighten oss-guard.yml patterns before merging."
+            exit 1
+          fi
+          echo "✓ self-test caught all 16 intentional positives individually."
+          # trap cleans up $TEST_DIR
+
+      - name: Scan for closed-engine imports
+        run: |
+          set -e
+          # Four patterns — keep in sync with the self-test above:
+          #   P1: `from '<spec>'`              — static + type-only imports + re-exports
+          #   P2: `require('<spec>')`          — CommonJS require
+          #   P3: `import('<spec>')`           — dynamic import expression (single/double/backtick)
+          #   P4: `import '<spec>'`            — bare side-effect static import (no `from`)
+          # File globs include .cts/.mts/.cjs/.jsx — the earlier guard missed
+          # these and a build artifact in either would have shipped silently.
+          # Alternation `(validation-engine|studio-runtime)` blocks both moat
+          # packages — extend if a third closed moat package is added.
+          HITS=$(grep -REn \
+            --include='*.ts' --include='*.tsx' --include='*.js' --include='*.jsx' \
+            --include='*.mjs' --include='*.cjs' --include='*.cts' --include='*.mts' \
+            -e "from[[:space:]]+['\"\`]@mcp-verify/\(validation-engine\|studio-runtime\)" \
+            -e "require[[:space:]]*\([[:space:]]*['\"\`]@mcp-verify/\(validation-engine\|studio-runtime\)" \
+            -e "import[[:space:]]*\([[:space:]]*['\"\`]@mcp-verify/\(validation-engine\|studio-runtime\)" \
+            -e "import[[:space:]]+['\"\`]@mcp-verify/\(validation-engine\|studio-runtime\)" \
+            packages/sdk/src packages/sdk/dist packages/studio-runner/src packages/studio-runner/dist 2>/dev/null || true)
+
+          if [ -n "$HITS" ]; then
+            echo "::error::OSS packages must not import @mcp-verify/validation-engine or @mcp-verify/studio-runtime."
+            echo "Offending lines:"
+            echo "$HITS"
+            exit 1
+          fi
+          echo "OK — no closed-engine imports in OSS packages."
+
+      - name: Verify package.json deps
+        run: |
+          set -e
+          for pkg in packages/sdk packages/studio-runner; do
+            for forbidden in validation-engine studio-runtime; do
+              if grep -q "\"@mcp-verify/$forbidden\"" "$pkg/package.json"; then
+                echo "::error::$pkg/package.json declares @mcp-verify/$forbidden — disallowed."
+                exit 1
+              fi
+            done
+          done
+          echo "OK — no closed-engine deps declared in OSS package.json files."
+
+      # ------------------------------------------------------------------
+      # Wire-shape leak scan (Red Flags Bundle Phase B, 2026-05-26).
+      #
+      # The import-side scan above prevents OSS packages from STATICALLY
+      # depending on the validation engine. But the McpVerifyClient class in
+      # @mcp-verify/sdk is now a thin proxy over every /api/v1/* endpoint —
+      # if a future route response accidentally includes an engine-internal
+      # field (rule_weight, severity_formula, scorer_input, ...) the SDK
+      # transparently surfaces it to OSS consumers and the moat erodes by
+      # inches. This step is the second tripwire: scan the v1 API response
+      # surface for any of the 17 forbidden engine-namespace field names.
+      #
+      # Stopgap notes:
+      #   - Pure regex; a proper ts-morph AST scan over object literals
+      #     returned from /api/v1/* is the Phase 2.5 follow-up.
+      #   - New forbidden tokens must be added to BOTH the scan regex AND
+      #     the self-test below — keep them in sync (the self-test asserts
+      #     each token is caught individually, mirroring the T-172 pattern).
+      #   - The colon anchor (`\s*:`) ensures the regex only fires on
+      #     field-name positions, not values — `severity` as a value of
+      #     `assertion.severity` won't match because the lookup is for
+      #     `severity_formula:` etc.
+      # ------------------------------------------------------------------
+      - name: Self-test (wire-shape regex regression guard)
+        run: |
+          set -euo pipefail
+          TEST_DIR="apps/web/src/app/api/v1/__shape_guard_self_test__"
+          trap 'rm -rf "$TEST_DIR"' EXIT INT TERM
+          mkdir -p "$TEST_DIR"
+
+          # Install ripgrep — used for multiline pattern matching.
+          which rg >/dev/null 2>&1 || sudo apt-get install -y ripgrep
+
+          # Anchored full-token list — must be IDENTICAL to the scan
+          # pattern below. Each token is a specific engine-namespace field
+          # name; broad substrings (severity, weight) are NOT matched.
+          PATTERN='(?:NextResponse\.json|Response\.json|JSON\.stringify)\s*\(\s*\{[^)]*?\b(rule_weight|rule_weights|severity_formula|severity_weights|severity_threshold|assertion_internal|assertion_internals|assertion_rule_id|scorer_input|scorer_internal|scorer_state|engine_internal|engine_intern|engine_state|engine_config|scoring_internal|scoring_intern|raw_assertion_def)\b\s*:'
+
+          # One file per token — assert each is caught individually.
+          fail_count=0
+          for token in rule_weight rule_weights severity_formula severity_weights \
+                       severity_threshold assertion_internal assertion_internals \
+                       assertion_rule_id scorer_input scorer_internal scorer_state \
+                       engine_internal engine_intern engine_state engine_config \
+                       scoring_internal scoring_intern raw_assertion_def; do
+            cat > "$TEST_DIR/positive_${token}.ts" <<EOF
+          import { NextResponse } from 'next/server';
+          export function GET() {
+            return NextResponse.json({ ${token}: 0.5 });
+          }
+          EOF
+            if rg -U --multiline-dotall -q "$PATTERN" "$TEST_DIR/positive_${token}.ts"; then
+              echo "✓ caught $token"
+            else
+              echo "::error::self-test FAILED for token '$token' — regex no longer catches it"
+              cat "$TEST_DIR/positive_${token}.ts"
+              fail_count=$((fail_count + 1))
+            fi
+          done
+
+          if [ "$fail_count" -gt 0 ]; then
+            echo "::error::$fail_count token(s) slipped past the wire-shape guard."
+            echo "Tighten the regex in oss-guard.yml (AND keep this self-test in sync)."
+            exit 1
+          fi
+          echo "✓ self-test caught all 17 forbidden tokens individually."
+          # trap cleans up $TEST_DIR
+
+      - name: Wire-shape leak scan
+        run: |
+          set -e
+          # Install ripgrep if missing.
+          which rg >/dev/null 2>&1 || sudo apt-get install -y ripgrep
+
+          # MUST stay in sync with the self-test above. If you add a new
+          # token here, add it to the self-test loop too.
+          PATTERN='(?:NextResponse\.json|Response\.json|JSON\.stringify)\s*\(\s*\{[^)]*?\b(rule_weight|rule_weights|severity_formula|severity_weights|severity_threshold|assertion_internal|assertion_internals|assertion_rule_id|scorer_input|scorer_internal|scorer_state|engine_internal|engine_intern|engine_state|engine_config|scoring_internal|scoring_intern|raw_assertion_def)\b\s*:'
+
+          HITS=$(rg -U --multiline-dotall -n "$PATTERN" \
+            apps/web/src/app/api/v1/ \
+            -g '*.ts' \
+            -g '!__shape_guard_self_test__/**' \
+            2>/dev/null || true)
+
+          if [ -n "$HITS" ]; then
+            echo "::error::OSS wire-shape leak detected — an /api/v1/* response includes an engine-internal field name."
+            echo "Offending lines:"
+            echo "$HITS"
+            echo ""
+            echo "These field names are part of the proprietary validation engine's namespace and must NOT travel back through the v1 API surface (the @mcp-verify/sdk class proxies every endpoint transparently)."
+            exit 1
+          fi
+          echo "OK — no engine-internal field names found in /api/v1/* responses."
+
+      # ------------------------------------------------------------------
+      # Wire-shape sentinel (T-184, ADR 0008).
+      #
+      # The cloud /evaluate route MUST declare its request schema with a
+      # `schema_version: z.literal('v1')` field. This is the load-bearing
+      # invariant that lets future SDK versions fail gracefully against an
+      # old cloud (and vice-versa) — drop the literal and v1 + v2 SDKs
+      # silently exchange undefined-behavior payloads.
+      #
+      # ADR 0008 §"Verification" claimed this tripwire existed. The PE
+      # review caught that it didn't — we're adding it now.
+      # ------------------------------------------------------------------
+      - name: "Wire-shape sentinel — /evaluate has schema_version: 'v1'"
+        run: |
+          set -e
+          ROUTE="apps/web/src/app/api/v1/automation/suites/[suiteId]/runs/[runId]/steps/[caseId]/evaluate/route.ts"
+          if [ ! -f "$ROUTE" ]; then
+            echo "::warning::evaluate route not at expected path; skipping wire-shape sentinel."
+            echo "  expected: $ROUTE"
+            exit 0
+          fi
+          if ! grep -E "schema_version:[[:space:]]*z\.literal\(['\"]v1['\"]\)" "$ROUTE" > /dev/null; then
+            echo "::error::/evaluate route is missing the schema_version: z.literal('v1') wire-shape sentinel."
+            echo "  ADR 0008 codifies this as the wire-stability invariant — restoring it is the right fix."
+            echo "  file: $ROUTE"
+            exit 1
+          fi
+          echo "✓ /evaluate route declares schema_version: z.literal('v1')."
+
+      # ------------------------------------------------------------------
+      # Public assertion catalog scan (E-public-example-report, 2026-05-27).
+      #
+      # The catalog generator (tools/build-assertion-catalog.mjs) is allow-
+      # list-based — it extracts only id/surface/severity/title/description/
+      # specRefUrl/dependsOn. A future edit that loosens the allowlist could
+      # silently expose engine-internal field names. This step is a second
+      # tripwire that scans the committed generated file for any of the
+      # forbidden tokens, plain-token (not the JSON-wrapped pattern above).
+      # ------------------------------------------------------------------
+      - name: Public catalog forbidden-token scan
+        run: |
+          set -e
+          which rg >/dev/null 2>&1 || sudo apt-get install -y ripgrep
+          CATALOG=apps/web/src/lib/assertion-catalog.generated.ts
+          if [ ! -f "$CATALOG" ]; then
+            echo "::warning::$CATALOG not present — skipping public-catalog scan."
+            exit 0
+          fi
+          # Plain-token version of the forbidden list. The catalog is a
+          # JSON-shaped TS literal — any of these names appearing as an
+          # object key (followed by colon or quote-colon) is a leak.
+          TOKENS='rule_weight|rule_weights|severity_formula|severity_weights|severity_threshold|assertion_internal|assertion_internals|assertion_rule_id|scorer_input|scorer_internal|scorer_state|engine_internal|engine_intern|engine_state|engine_config|scoring_internal|scoring_intern|raw_assertion_def'
+          HITS=$(rg -n "\"(?:$TOKENS)\"\s*:" "$CATALOG" || true)
+          if [ -n "$HITS" ]; then
+            echo "::error::Public assertion catalog leaked an engine-internal field name."
+            echo "Offending lines:"
+            echo "$HITS"
+            exit 1
+          fi
+          echo "OK — public assertion catalog contains no forbidden tokens."
