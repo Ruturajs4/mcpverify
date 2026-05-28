@@ -29,7 +29,9 @@
 import { readFile } from 'node:fs/promises';
 import { resolveApiKey } from './client.js';
 
-const DEFAULT_API_URL = 'https://api.mcpverify.dev';
+// PE-sanity fix (2026-05-28): see client.ts for the rationale — api.mcpverify
+// .dev has no DNS; everything lives behind https://mcpverify.dev today.
+const DEFAULT_API_URL = 'https://mcpverify.dev';
 
 // ---------- Public types ----------
 

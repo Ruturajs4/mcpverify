@@ -2,7 +2,11 @@
 
 import type { Mode, RunResult, TraceBundle } from './types.js';
 
-const DEFAULT_API_URL = 'https://api.mcpverify.dev';
+// PE-sanity fix (2026-05-28): `api.mcpverify.dev` has no DNS record; the
+// production cloud is served from `mcpverify.dev` (single Vercel deployment).
+// Override via MCPVERIFY_API_URL env var if a future split-domain setup
+// reintroduces the api subdomain.
+const DEFAULT_API_URL = 'https://mcpverify.dev';
 
 // Red Flags Bundle Phase E — fetch timeouts.
 //

@@ -19,7 +19,7 @@
 //     loads zero SDK modules; `mcpverify --help` loads only the help printer.
 //   - This keeps `mcpverify --version` <100ms even on cold disk.
 
-const SDK_VERSION = '0.7.0';
+const SDK_VERSION = '0.7.1';
 
 async function main(): Promise<void> {
   const args = process.argv.slice(2);

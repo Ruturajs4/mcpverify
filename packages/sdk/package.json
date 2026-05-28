@@ -1,6 +1,6 @@
 {
   "name": "@mcp-verify/sdk",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "MCPVerify SDK — captures MCP server protocol traces and ships them to mcpverify.dev for cloud-side validation. Find spec violations, security issues, and compatibility gaps in your MCP server.",
   "license": "Apache-2.0",
   "type": "module",

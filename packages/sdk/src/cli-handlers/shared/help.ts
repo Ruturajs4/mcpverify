@@ -6,7 +6,7 @@
 // TODO: derive from package.json at build time. This constant drifted
 // in the 0.5.0 release (banner reported 0.4.2) — caught only because a
 // post-publish smoke test ran. Next refactor: a build-time generator.
-export const SDK_VERSION = '0.7.0';
+export const SDK_VERSION = '0.7.1';
 
 export function printVersion(): void {
   console.log(`@mcp-verify/sdk ${SDK_VERSION}`);

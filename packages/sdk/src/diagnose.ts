@@ -11,7 +11,9 @@
 // Note: resolveApiKey (throws on miss) is intentionally NOT used here. Diagnose
 // supports an anonymous mode via the public endpoint when no key is present.
 
-const DEFAULT_API_URL = 'https://api.mcpverify.dev';
+// PE-sanity fix (2026-05-28): see client.ts for the rationale — api.mcpverify
+// .dev has no DNS; everything lives behind https://mcpverify.dev today.
+const DEFAULT_API_URL = 'https://mcpverify.dev';
 
 export type DiagnoseTransport = 'stdio' | 'http' | 'sse';
 
